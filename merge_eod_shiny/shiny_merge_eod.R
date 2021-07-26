@@ -12,7 +12,7 @@ require("shinyFiles")
 require("shinyalert")
 require("reader") # to have get_delim
 require("stringr") # regular expressions library
-source("eod_class.R")
+
 
 
 
