@@ -2,6 +2,7 @@ require(reader)
 require(ggplot2)
 require(changepoint)
 require("stringr") # regular expressions library
+source("eod_class.R")
 
 
 global_metadata_lines = 12
