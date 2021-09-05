@@ -4,7 +4,6 @@ require(changepoint)
 require("stringr") # regular expressions library
 
 
-
 global_metadata_lines = 12
 global_sampling_rate = 192000
 global_bit_depth = 16
@@ -181,7 +180,7 @@ Eod$methods(
     #read wave
     decimal_sep <<- get.delim(file,
                               skip=metadata_lines,
-                              delims=c(".",".")
+                              delims=c(".",",")
     )
     file_wave<<-read.csv(
       file,
@@ -202,14 +201,26 @@ Eod$methods(
   {
     file_metadata
   },
+  setMetadata=function(metadata)
+  {
+    file_metadata<<-metadata
+  },
   getBaseFilename=function()
   {
     base_filename
   },
-  
+  setFile=function(f_file)
+  {
+	file<<-f_file
+	base_filename<<-f_file
+  },
   getWave=function()
   {
     file_wave
+  },
+  setWave=function(p_wave)
+  {
+    file_wave<<-p_wave
   },
   getNormalizedWave=function()
   {
@@ -659,41 +670,65 @@ EodCluster$methods()
 
 EodCluster$methods(
   initialize=
-    function(sourceFiles="N/A", baselineType=global_baseline_type, true_filenames=NULL, ...)
+    function(sourceFiles="N/A", baselineType=global_baseline_type, true_filenames=NULL, cluster_file=NULL, encoding = global_encoding, ...)
     {
       callSuper(...)
       original_files<<-c()
-      sourceFiles<<-sourceFiles
+      objs<-list()
       baselineType<<-baselineType
-      objs=list()
-      identifiers<<-data.frame(id=c(), count=c())
-      i <- 1
-      for(file in sourceFiles)
+      
+      if(!is.null(cluster_file))
       {
-        if(is.null(true_filenames))
+        print("CLUSTER")
+        print(cluster_file)
+        if(!is.null(true_filenames))
         {
-          original_files<<-c(true_filenames,file)
+          original_files<<-true_filenames
+          print("ORIGINAL")
+          print(original_files)
+          print("----------")
+          cluster_file<-cluster_file$datapath
+          
         }
-        else
-        {
-          original_files<<-c(true_filenames,true_filenames[i])
-        }
+        print("NEW_CLUSTER")
+        print(cluster_file)
+		objs<-readClusterFile(cluster_file)
         
-        eod <- Eod$new(specimenTag="init")
-        eod$readFile(file)
-        eod$getPossibleBaseline(baselineType)
+      }
+      else
+      {
+        sourceFiles<<-sourceFiles
         
-        objs[[i]]<-eod
-        if(eod$getSpecimenIdentifier() %in% identifiers$id )
+       
+        identifiers<<-data.frame(id=c(), count=c())
+        i <- 1
+        for(file in sourceFiles)
         {
-          identifiers$count[which(identifiers$id==eod$getSpecimenIdentifier())]<<-identifiers$count[which(identifiers$id==eod$getSpecimenIdentifier())]+1
+          if(is.null(true_filenames))
+          {
+            original_files<<-c(true_filenames,file)
+          }
+          else
+          {
+            original_files<<-c(true_filenames,true_filenames[i])
+          }
+          
+          eod <- Eod$new(specimenTag="init")
+          eod$readFile(file)
+          eod$getPossibleBaseline(baselineType)
+          
+          objs[[i]]<-eod
+          if(eod$getSpecimenIdentifier() %in% identifiers$id )
+          {
+            identifiers$count[which(identifiers$id==eod$getSpecimenIdentifier())]<<-identifiers$count[which(identifiers$id==eod$getSpecimenIdentifier())]+1
+          }
+          else
+          {
+            line<-data.frame(id=c(eod$getSpecimenIdentifier()), count=c(1))
+            identifiers<<-rbind(identifiers,line)
+          }
+          i <- i + 1
         }
-        else
-        {
-          line<-data.frame(id=c(eod$getSpecimenIdentifier()), count=c(1))
-          identifiers<<-rbind(identifiers,line)
-        }
-        i <- i + 1
       }
       eodObjects <<- objs
       size <<- length(eodObjects)
@@ -821,6 +856,8 @@ EodCluster$methods(
     print(new_file)
     list_f<-merged_index[[new_file]]
     print(list_f)
+    fn=paste0(target_folder, "/",new_file )
+    write("EOD_CLUSTER",fn, append = TRUE)
     i<-1
     invisible(lapply(list_f,
                     function(x)
@@ -828,16 +865,147 @@ EodCluster$methods(
                       print(x)
                       original_file<-original_files[x]
                       print(original_file)
-                      fn=paste0(target_folder, "/",new_file )
+                      
                       tmp_eod=eodObjects[[x]]
                       write(c("BEGIN",as.character(i), paste0("original_file","\t",original_file ),"="),fn, append = TRUE)
-                      write.table(tmp_eod$getMetadata(),fn, sep="\t", append = TRUE, row.names=FALSE, quote = FALSE )
+                      write.table(tmp_eod$getMetadata(),fn, sep="\t", append = TRUE, row.names=FALSE, quote = FALSE, dec = "." )
                       write("WAVE",fn, append = TRUE)
-                      write.table(tmp_eod$getWave(),fn, sep="\t", append = TRUE, row.names=FALSE , quote = FALSE)
+                      write.table(tmp_eod$getWave(),fn, sep="\t", append = TRUE, row.names=FALSE , quote = FALSE, dec = ".")
                       write("END",fn, append = TRUE)
                       i<<-i+1
                     }
                     ))
+  },
+  readClusterFile=function(cluster_file, encoding=global_encoding)
+  {
+	  con = file(cluster_file, "r")
+	  new_file<-FALSE
+	  begin_metadata<-NULL
+	  end_metadata<-NULL
+	  i<-1
+      i_file<-0
+	  name_current_file<-c()
+	  index_current_file<-c()
+	  end_current_file<-c()
+      nb_file<-NULL
+      name_file<-NULL
+	  eod<-NULL
+	  offset_metadata<-4
+      offset_wave<-17	  
+	  while ( TRUE ) 
+	  {
+		line = readLines(con, n = 1)
+		if ( length(line) == 0 ) {
+		  break
+		}
+		else
+		{
+			
+			if(new_file)
+			{
+			
+				if(i_file==0)
+				{
+					nb_file<-line
+				}
+				else if(i_file==1)
+				{
+					metafile<-strsplit(line, '\t') [[1]]
+					print(metafile)
+					if(length(metafile)==2)
+					{
+						if(metafile[1]=="original_file")
+						{
+							name_file<-metafile[2]
+							print(name_file)
+							name_current_file<-c(name_current_file,name_file)
+							
+						}
+						else
+						{
+							name_current_file<-c(name_current_file,"")
+						}
+					}
+				}
+				i_file<-i_file+1
+			}
+			if(line=="BEGIN")
+			{
+				new_file<-TRUE
+				index_current_file<-c(index_current_file,i)
+			}
+			else if(line=="END")
+			{
+				end_current_file<-c(end_current_file,i)
+				new_file<-FALSE
+				i_file<-0
+			}
+			i<-i+1
+		}
+		#print(line)
+	  }
+	  close(con)
+	  
+	  decimal_sep<-"."
+	  objs=list()
+	  for(i in 1:length(index_current_file))
+	  {
+		pos_begin<-index_current_file[i]
+		pos_end<-end_current_file[i]
+		name_current<-name_current_file[i]
+		
+		#metadata
+		file_metadata <- read.csv(cluster_file, 
+                             header=FALSE,
+                             skip=pos_begin+offset_metadata,							 
+                             nrows=12, 
+                             sep="\t", 
+                             colClasses=c("character","character"),
+                             fileEncoding = encoding)
+		colnames(file_metadata) <- c("param", "value")
+		
+		eod <- Eod$new(
+				  specimenTag=file_metadata$value[1],
+				  provisionalId=file_metadata$value[2],
+				  collectionEvent=file_metadata$value[3],
+				  recordingSoftware=file_metadata$value[4],
+				  recordingHardware=file_metadata$value[5],
+				  recordist=file_metadata$value[6],
+				  bitDepth=as.numeric(file_metadata$value[7]),
+				  samplingRate = as.numeric(file_metadata$value[8]),
+				  recordingDateTime = file_metadata$value[9],
+				  recordingTemperature = as.numeric(file_metadata$value[10]),
+				  recordingConductivity =  as.numeric(file_metadata$value[11]),
+				  projectName =   file_metadata$value[12],
+				)
+		eod$setMetadata(file_metadata)
+		eod$setFile(name_current)
+		#wave
+		print(pos_begin+offset_wave+1)
+		
+		print("DELIM")
+		print(decimal_sep)
+		file_wave<-read.csv(
+				  cluster_file,
+				  sep='\t',
+				  skip=pos_begin+offset_wave,
+				  nrows=pos_end-(pos_begin+offset_wave+2),				  
+				  header=TRUE,
+				  dec=decimal_sep,
+				  colClasses=c("numeric","numeric", "NULL")
+				)
+			
+				if(ncol(file_wave)>2)
+				{
+				  file_wave<-file_wave[,1:2]
+				}
+		colnames(file_wave) <- c("time", "amplitude")
+		eod$setWave(file_wave)
+		objs[[i]]<-eod
+	  }
+	  
+	  print("DONE")
+	  objs	  
   }
   
 )
