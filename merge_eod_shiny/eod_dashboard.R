@@ -21,6 +21,8 @@ output_folder<-""
 l_frames<-list()
 eod_cluster<-NULL
 loaded<-FALSE
+current_eod_idx<-NULL
+updated_files<-c()
 
 display_plots<-function()
 {
@@ -51,27 +53,69 @@ manage_cluster<-function(file_array, output,session)
   eod_cluster<<-EodCluster$new(cluster_files=file_array$datapath, true_filenames=file_array$name)
   output$summary<-renderText(paste0("1","/", eod_cluster$getSize(), " file(s)" ))
   
-  #elems<-list()
-  #for(i in 1:length(eod_cluster$getAllEods()))
-  #{
-  #  print(i)
-  #  elems[[i]]<-paste0(i, " ", eod_cluster$getOriginalFile(i))
-  #  print(paste0(i, " ", eod_cluster$getOriginalFile(i)))
-  #}
  
+  i<-1
+  tmp_choices<-list()
+  lapply(eod_cluster$getOriginalFiles(),
+                       function(x)
+                       {
+                         print("x=")
+                         print(x)
+                         tmp_choices[[i]]<<-paste0(i, " ", x)
+                         i<<-i+1
+                       })
+  print(tmp_choices)
   updateSelectInput(session, "select_eod",
-                    
-                    choices = setNames(seq(1,length(eod_cluster$getOriginalFiles())),as.list(eod_cluster$getOriginalFiles())),
+                   
+                    choices = setNames(seq(1,length(eod_cluster$getOriginalFiles())),
+                                      tmp_choices)
                     
   )
   loaded<<-TRUE
 }
 
+inverse_phase<-function( output,session)
+{
+  if(!is.null(eod_cluster)&&loaded)
+  {
+    print(current_eod_idx)
+    current_eod<-eod_cluster$getAllEods()[[as.numeric(current_eod_idx)]]
+    print(typeof(current_eod))
+    current_eod$inversePhase()
+    current_eod$getPossibleBaseline()
+    current_chart<-current_eod$getMainPlot()
+    output$plot_eods<-renderPlot(current_chart)
+    output$summary_data<-renderTable(current_eod$getMetadata())
+    modified_file<-eod_cluster$getUploadedFile(as.numeric(current_eod_idx))
+    print("MOD")
+    print(modified_file)
+    if(! modified_file %in% updated_files)
+    {
+      updated_files<<-c(updated_files,modified_file)
+    }
+  }
+}
+
+
+save_update<-function(file_array, output_folder, output,session)
+{
+  if(!is.null(eod_cluster)&&loaded)
+  {
+    print(updated_files)
+    sapply(updated_files, 
+           function(x)
+           {
+             eod_cluster$updateCluster(output_folder, x)
+           }
+          )
+    updated_files<<-c()
+  }
+}
 redraw_plot<-function(i, output,session)
 {
   if(!is.null(eod_cluster)&&loaded)
   {
-    print(i)
+    current_eod_idx<<-i
     tmp_eod<-eod_cluster$getEODS(as.numeric(i))
     tmp_eod$getPossibleBaseline()
     current_chart<-tmp_eod$getMainPlot()
@@ -175,6 +219,8 @@ ui <- dashboardPage(
                         
                         plotOutput("plot_eods")
                       ),
+                    actionButton("reverse_phase", "Revert phase"),
+                    actionButton("save_update", "Save updates"),
                       selectInput("select_eod", label="Current EOD", choices=c())
                     ),
                     htmlOutput("summary_data"),
@@ -229,9 +275,20 @@ server <- function(input, output, session) {
     observeEvent(input$select_eod,
                   {
                     redraw_plot(input$select_eod,output, session)
-                  }
-      
-    )
+                  })
+    observeEvent(input$reverse_phase,
+                 {
+                   inverse_phase(output, session)
+                 })
+    
+    observeEvent(input$save_update,
+                 {
+                   output_folder <<-input$output_folder
+                   if(length(file_array)>0 && nchar(output_folder)>0)
+                   {
+                    save_update(file_array, output_folder, output, session)
+                   }
+                 })
 }
 
 # Run the application 

@@ -676,6 +676,7 @@ EodCluster$methods(
       callSuper(...)
       original_files<<-c()
 	  original_files_to_eod<<-c()
+	  uploaded_files_to_eod<<-c()
       objs<-list()
       baselineType<<-baselineType
       print("ORIGINAL_NAMES")
@@ -855,6 +856,10 @@ EodCluster$methods(
   {  
     original_files_to_eod[index]
   },
+   getUploadedFile=function(index)
+  {  
+    uploaded_files_to_eod[index]
+  },
   getFilenameForMergedData=function()
   {
     merged_index<<-list()
@@ -906,6 +911,50 @@ EodCluster$methods(
                       
                       tmp_eod=eodObjects[[x]]
                       write(c("BEGIN",as.character(i), paste0("original_file","\t",original_file ),"="),fn, append = TRUE)
+                      write.table(tmp_eod$getMetadata(),fn, sep="\t", append = TRUE, row.names=FALSE, quote = FALSE, dec = "." )
+                      write("WAVE",fn, append = TRUE)
+                      write.table(tmp_eod$getWave(),fn, sep="\t", append = TRUE, row.names=FALSE , quote = FALSE, dec = ".")
+                      write("END",fn, append = TRUE)
+                      i<<-i+1
+                    }
+                    ))
+  },
+  updateCluster=function( target_folder, cluster_file)
+  {
+	print("file_to_save")
+	print(file_array)
+	print(target_folder)
+	print(cluster_file)
+	i<-1
+	print(uploaded_files_to_eod)
+	tmp_eods<-c()
+	target_file<-NULL
+	for(file in uploaded_files_to_eod)
+	{
+	    
+		if(file==cluster_file)
+		{
+			print("to_update")
+			print(i)
+			tmp_eods<-c(tmp_eods, eodObjects[[i]])
+			print("target_file")
+			print(original_files_to_eod[i])
+			target_file<-original_files_to_eod[i]
+		}
+		i<-i+1
+	}
+	fn<-paste0(target_folder, "/",target_file)
+	file.copy(fn, paste0(fn,".bck"), overwrite = TRUE )
+	write("EOD_CLUSTER",fn, append = FALSE)
+	i<-1
+    invisible(lapply(tmp_eods,
+                    function(x)
+                    {
+                      
+                      
+                      tmp_eod=x
+					  
+                      write(c("BEGIN",as.character(i), paste0("original_file","\t",target_file ),"="),fn, append = TRUE)
                       write.table(tmp_eod$getMetadata(),fn, sep="\t", append = TRUE, row.names=FALSE, quote = FALSE, dec = "." )
                       write("WAVE",fn, append = TRUE)
                       write.table(tmp_eod$getWave(),fn, sep="\t", append = TRUE, row.names=FALSE , quote = FALSE, dec = ".")
@@ -1050,6 +1099,7 @@ EodCluster$methods(
 		{
 			original_files_to_eod<<-c(original_files_to_eod,original_name)
 		}
+		uploaded_files_to_eod<<-c(uploaded_files_to_eod,cluster_file)
 	  }
 	  
 	  print("DONE")
