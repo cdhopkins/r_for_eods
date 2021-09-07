@@ -660,7 +660,8 @@ EodCluster <-setRefClass("EodClusters",
                            baselineType="character",
                            identifiers="ANY",
                            merged_index="ANY",
-                           original_files="ANY"
+                           original_files="ANY", 
+						   cluster_files="ANY"
                          )
 )
 
@@ -670,29 +671,54 @@ EodCluster$methods()
 
 EodCluster$methods(
   initialize=
-    function(sourceFiles="N/A", baselineType=global_baseline_type, true_filenames=NULL, cluster_file=NULL, encoding = global_encoding, ...)
+    function(sourceFiles="N/A", baselineType=global_baseline_type, true_filenames=NULL, cluster_files=NULL, encoding = global_encoding, ...)
     {
       callSuper(...)
       original_files<<-c()
+	  original_files_to_eod<<-c()
       objs<-list()
       baselineType<<-baselineType
-      
-      if(!is.null(cluster_file))
+      print("ORIGINAL_NAMES")
+	  print(true_filenames)
+	   print(typeof(true_filenames))
+	  
+      if(!is.null(cluster_files))
       {
-        print("CLUSTER")
-        print(cluster_file)
-        if(!is.null(true_filenames))
+		cluster_files<<-cluster_files
+		if(!is.null(true_filenames))
         {
-          original_files<<-true_filenames
-          print("ORIGINAL")
-          print(original_files)
-          print("----------")
-          cluster_file<-cluster_file$datapath
-          
+            original_files<<-c()
+			for(tmp in true_filenames)
+		    {
+			  original_files<<-c(original_files, tmp)
+		    }
         }
+		
+		eodObjects<<-list()
+		i<-1
+		for(file in cluster_files)
+        {
+		  if(is.null(true_filenames))
+          {
+            original_files<<-c(original_files,file)
+			readClusterFile(file)
+          }
+		  else
+		  {
+		   print("ORIGINAL_NAME_LOOP")
+		   print(true_filenames[i])
+			readClusterFile(file, original_name=true_filenames[i] )
+		  }
+          
+		  i <- i + 1
+		}
         print("NEW_CLUSTER")
-        print(cluster_file)
-		objs<-readClusterFile(cluster_file)
+        print(cluster_files)
+		print("ORIGINAL_FILE")
+		print(original_files)
+		print("original_files_to_eod")
+		print(original_files_to_eod)
+		
         
       }
       else
@@ -729,9 +755,14 @@ EodCluster$methods(
           }
           i <- i + 1
         }
+		print("DUMP_OBJS")
+	    print(objs)
+        eodObjects <<- objs
       }
-      eodObjects <<- objs
+	  
       size <<- length(eodObjects)
+	  print("CHECK")
+	  #print(eodObjects)
       .self
     },
   getEODS=function(index)
@@ -816,7 +847,14 @@ EodCluster$methods(
   {
     eodObjects
   },
-  
+   getOriginalFiles=function()
+  {  
+    original_files_to_eod
+  },
+   getOriginalFile=function(index)
+  {  
+    original_files_to_eod[index]
+  },
   getFilenameForMergedData=function()
   {
     merged_index<<-list()
@@ -876,8 +914,12 @@ EodCluster$methods(
                     }
                     ))
   },
-  readClusterFile=function(cluster_file, encoding=global_encoding)
+  readClusterFile=function(cluster_file, original_name=NULL,  encoding=global_encoding)
   {
+     print("file_to_open")
+	 print(cluster_file)
+	 print("original_name")
+	 print(original_name)
 	  con = file(cluster_file, "r")
 	  new_file<-FALSE
 	  begin_metadata<-NULL
@@ -947,9 +989,11 @@ EodCluster$methods(
 	  close(con)
 	  
 	  decimal_sep<-"."
-	  objs=list()
+	  base_len<-length(eodObjects)
 	  for(i in 1:length(index_current_file))
 	  {
+	    print("i cluster")
+		print(i)
 		pos_begin<-index_current_file[i]
 		pos_end<-end_current_file[i]
 		name_current<-name_current_file[i]
@@ -1001,11 +1045,15 @@ EodCluster$methods(
 				}
 		colnames(file_wave) <- c("time", "amplitude")
 		eod$setWave(file_wave)
-		objs[[i]]<-eod
+		eodObjects[[base_len + i]]<<-eod
+		if(!is.null(original_name))
+		{
+			original_files_to_eod<<-c(original_files_to_eod,original_name)
+		}
 	  }
 	  
 	  print("DONE")
-	  objs	  
+	  TRUE 
   }
   
 )

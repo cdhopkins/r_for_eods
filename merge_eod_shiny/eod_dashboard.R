@@ -45,20 +45,23 @@ append_metadata_batch<-function(new_file, target_folder)
     eod_cluster$createMergedFile(new_file, target_folder)
 }
 
-manage_cluster<-function(batch_file, output,session)
+manage_cluster<-function(file_array, output,session)
 {
 
-  eod_cluster<<-EodCluster$new(cluster_file=batch_file, true_filenames=batch_file$name)
+  eod_cluster<<-EodCluster$new(cluster_files=file_array$datapath, true_filenames=file_array$name)
   output$summary<-renderText(paste0("1","/", eod_cluster$getSize(), " file(s)" ))
   
-  elems<-c()
-  for(i in 1:length(eod_cluster$getAllEods()))
-  {
-    elems<-c(elems,i)
-  }
+  #elems<-list()
+  #for(i in 1:length(eod_cluster$getAllEods()))
+  #{
+  #  print(i)
+  #  elems[[i]]<-paste0(i, " ", eod_cluster$getOriginalFile(i))
+  #  print(paste0(i, " ", eod_cluster$getOriginalFile(i)))
+  #}
+ 
   updateSelectInput(session, "select_eod",
                     
-                    choices = elems,
+                    choices = setNames(seq(1,length(eod_cluster$getOriginalFiles())),as.list(eod_cluster$getOriginalFiles())),
                     
   )
   loaded<<-TRUE
@@ -66,7 +69,7 @@ manage_cluster<-function(batch_file, output,session)
 
 redraw_plot<-function(i, output,session)
 {
-  if(!is.null(eod_cluster))
+  if(!is.null(eod_cluster)&&loaded)
   {
     print(i)
     tmp_eod<-eod_cluster$getEODS(as.numeric(i))
@@ -141,12 +144,7 @@ manage_batch_files<-function(file_array, target_folder, output)
                 
             }
             print("after_alert")
-            src_plots<-display_plots()
-            print(src_plots)
-            output$plot_eods<-renderPlot(
-                grid.arrange(grobs=src_plots, height=5000, ncol=1)
-                
-            )
+   
         }
         
     ))
