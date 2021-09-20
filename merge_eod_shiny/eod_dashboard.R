@@ -162,6 +162,12 @@ remove_at_index<-function(i, output,session)
  
 }
 
+change_time_normalization<-function(type_normalization,output, session)
+{
+   print(type_normalization)
+   eod_cluster$setTimeNormalization(type_normalization)
+}
+
 manage_batch_files<-function(file_array, target_folder, output)
 {
     print("LOAD")
@@ -247,6 +253,11 @@ ui <- dashboardPage(
         textInput("output_folder", label="output  folder", value=getwd()),
         actionButton("change_output_folder", "Change output folder"),
         actionButton("trigger_merge", "Merge files"),
+        fileInput("eod_cluster", label= "Choose cluster file",
+                  multiple = FALSE,
+                  accept = c("text/csv",
+                             "text/comma-separated-values,text/plain",
+                             ".csv")),
         actionButton("load_cluster", "Load cluster")
         
     ),
@@ -260,6 +271,13 @@ ui <- dashboardPage(
                     actionButton("invert_phase", "Invert phase"),
                     actionButton("remove_eod", "Remove"),
                     actionButton("save_update", "Save updates"),
+                    selectInput("time_normalization", label="Time normalization", choices=c(
+                        "halfway"="halfway",
+                        "positive_peak"= "positive_peak",
+                        "negative_peak"= "negative_peak"
+                      
+                    )),
+                    
                       selectInput("select_eod", label="Current EOD", choices=c())
                     ),
                     htmlOutput("summary_data"),
@@ -308,7 +326,7 @@ server <- function(input, output, session) {
     observeEvent(input$load_cluster,
                  {
                     print("read merge")
-                    manage_cluster(input$eod_files,output, session)
+                    manage_cluster(input$eod_cluster,output, session)
                  })
     
     observeEvent(input$select_eod,
@@ -322,6 +340,15 @@ server <- function(input, output, session) {
     observeEvent(input$invert_phase,
                  {
                    invert_phase(output, session)
+                 })
+    observeEvent(input$time_normalization,
+                 {
+                   if(loaded)
+                   {
+                     print("tried_to_normalize")
+                     change_time_normalization(input$time_normalization,output, session)
+                     redraw_plot(input$select_eod,output, session)
+                   }
                  })
     observeEvent(input$remove_eod,
                  {

@@ -14,6 +14,7 @@ global_arbitrary_baseline <-40
 
 global_baseline_done = FALSE
 global_baseline_type="meanvar"
+global_time_normalization_type="halfway"
 
 Eod <-setRefClass("Eod",
                   fields = list(
@@ -74,7 +75,8 @@ Eod <-setRefClass("Eod",
                     main_plot="ANY",
                     periodgram_plot = "ANY",
                     derivate_plot = "ANY", 
-                    base_filename="character"
+                    base_filename="character",
+					time_normalization="character"
                   )
                   
 )
@@ -103,6 +105,7 @@ Eod$methods(
              maxPeaks = global_nb_peaks,
              arbitraryBaseline= global_arbitrary_baseline,
              baselineType=global_baseline_type,
+			 time_normalization=global_time_normalization_type,
              ...
     )
     {
@@ -141,6 +144,7 @@ Eod$methods(
       baselineType <<- baselineType 
       base_filename<<-basename(file)
       specimenIdentifier<<- paste(projectName, collectionEvent, specimenTag, sep="_")
+	  time_normalization<<- time_normalization
       .self
     }
   ,
@@ -343,6 +347,15 @@ Eod$methods(
     chooseBaselineAndNormalize(type)
     frame_baseline
   },
+  setTimeNormalization=function(type)
+  {
+	time_normalization<<-type
+  }
+  ,
+  getTimeNormalization=function()
+  {
+	time_normalization
+  },
   #main sc function
   normalize = function(type=baselineType)
   {
@@ -383,7 +396,9 @@ Eod$methods(
     normalized_wave$amplitude <<- normalized_wave$amplitude/(max(normalized_wave$amplitude) - min(normalized_wave$amplitude))
     normalized_wave_amplitude_only <<-normalized_wave
     #normalize time
-    normalized_wave<<-normalize_and_center_time(normalized_wave)
+	print("TRY_TO_NORMALIZE_TIME")
+	print(time_normalization)
+    normalized_wave<<-normalize_and_center_time(normalized_wave, time_normalization)
     #View(normalized_wave)
     createPeriodgram()
     
@@ -566,48 +581,41 @@ Eod$methods(
     v_plot<-eod_spectrum()  
   },
   #normalize time(private)
-  normalize_and_center_time=function(p_frame)
+  normalize_and_center_time=function(p_frame,time_normalization=global_time_normalization_type)
   {
-    
-    #normalize time
+	print("NORMALIZATION_TYPE=")
+	print(time_normalization)
+	#normalize time
     p_frame$time<- p_frame$time / (max(p_frame$time) - min(p_frame$time))
-    #find center
-    max_pos = which(p_frame$amplitude ==(max(p_frame$amplitude)))
-    min_pos = which(p_frame$amplitude ==(min(p_frame$amplitude)))
-    interv<-c(max_pos, min_pos)
-    
-    print("Pos max and min")
-    print(interv)
-    
-    #if min before amx
-    interv_sorted<- sort(interv)
-    
-    print("Pos max and min - sorted")
-    print(interv_sorted)
-    print("p1 time")
-    print(p_frame[interv_sorted[1],1])
-    print("p2 time")
-    print(p_frame[interv_sorted[2],1])
-    
-    time_center_value = (p_frame[interv_sorted[2],1]+p_frame[interv_sorted[1],1]) /2
-    
-    
-    print("(p1 time + p2 time) / 2")
-    print(time_center_value)
-    
-    #closest array point
-    real_time_center_position = which(abs(p_frame$time - time_center_value)==min(abs(p_frame$time - time_center_value))) 
-    print("REAL TIME CENTER POSITION")
-    print(real_time_center_position)
-    real_time_center_value = p_frame[real_time_center_position, 1]
-    print("REAL TIME CENTER VALUE")
-    print(real_time_center_value)
-    
-    #substract time baseline value
-    p_frame$time <- p_frame$time - real_time_center_value
-    #return
-    print("return")
-    p_frame
+	#find center
+	max_pos = which(p_frame$amplitude ==(max(p_frame$amplitude)))
+	min_pos = which(p_frame$amplitude ==(min(p_frame$amplitude)))
+    if(time_normalization=="halfway")
+	{		
+		interv<-c(max_pos, min_pos)			
+		#if min before max
+		interv_sorted<- sort(interv)		
+		time_center_value = (p_frame[interv_sorted[2],1]+p_frame[interv_sorted[1],1]) /2		
+				
+	}
+	else if(time_normalization=="positive_peak")
+	{		
+		print("go_positive")
+		time_center_value=p_frame[max_pos,1]
+	}
+	else if(time_normalization=="negative_peak")
+	{
+		print("go_negative")
+		time_center_value=p_frame[min_pos,1]
+	}
+	print("TIME_CENTER")
+	print(time_center_value)
+	#closest array point
+	real_time_center_position = which(abs(p_frame$time - time_center_value)==min(abs(p_frame$time - time_center_value)))		
+	real_time_center_value = p_frame[real_time_center_position, 1]		
+	#substract time baseline value
+	p_frame$time <- p_frame$time - real_time_center_value
+	p_frame
     
   },
   inversePhase = function()
@@ -661,7 +669,8 @@ EodCluster <-setRefClass("EodClusters",
                            identifiers="ANY",
                            merged_index="ANY",
                            original_files="ANY", 
-						   cluster_files="ANY"
+						   cluster_files="ANY",					
+						   time_normalization="character"
                          )
 )
 
@@ -671,9 +680,10 @@ EodCluster$methods()
 
 EodCluster$methods(
   initialize=
-    function(sourceFiles="N/A", baselineType=global_baseline_type, true_filenames=NULL, cluster_files=NULL, encoding = global_encoding, ...)
+    function(sourceFiles="N/A", baselineType=global_baseline_type, true_filenames=NULL, cluster_files=NULL, encoding = global_encoding,time_normalization=global_time_normalization_type, ...)
     {
       callSuper(...)
+	  time_normalization<<-time_normalization
       original_files<<-c()
 	  source_files_to_eod<<-c()
 	  original_files_to_eod<<-c()
@@ -1131,6 +1141,21 @@ EodCluster$methods(
 	eodObjects<<-eodObjects[-i]
 	uploaded_files_to_eod<<-uploaded_files_to_eod[-i]
 	source_files_to_eod<<-source_files_to_eod[-i]
+  },
+  setTimeNormalization=function(type)
+  {
+	time_normalization<<-type
+	invisible(lapply(eodObjects, 
+          function(eod)
+          {
+			eod$setTimeNormalization(time_normalization)
+		  }
+		  ))
+  }
+  ,
+  getTimeNormalization=function()
+  {
+	time_normalization
   }
   
 )
