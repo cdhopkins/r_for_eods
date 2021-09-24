@@ -199,7 +199,7 @@ superimpose<-function(flag, output, session)
         print(i)
         if(normalized)
         {
-          tmp_eod$normalize_second_part()
+          tmp_eod$detect_landmarks_after_normalization()
         }
         else
         {
