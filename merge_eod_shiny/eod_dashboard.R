@@ -237,6 +237,10 @@ change_time_normalization<-function(type_normalization,output, session)
 {
    print(type_normalization)
    eod_cluster$setTimeNormalization(type_normalization)
+   normalize_all_plots()
+   tmp_eod<-eod_cluster$getEODS(as.numeric(current_eod_idx))
+   current_chart<-tmp_eod$getMainPlot()
+   output$plot_eods<-renderPlot(current_chart)
 }
 
 manage_batch_files<-function(file_array, target_folder, output)
