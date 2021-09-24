@@ -105,7 +105,7 @@ invert_phase<-function( output,session)
 }
 
 
-save_update<-function(file_array, output_folder, output,session)
+save_update<-function( output_folder, output,session)
 {
   print("try to save")
   if(!is.null(eod_cluster)&&loaded)
@@ -445,10 +445,13 @@ server <- function(input, output, session) {
                  })
     observeEvent(input$save_update,
                  {
+                   print("try to save")
                    output_folder <<-input$output_folder
-                   if(length(file_array)>0 && nchar(output_folder)>0)
+                  
+                   if( nchar(output_folder)>0)
                    {
-                    save_update(file_array, output_folder, output, session)
+                     
+                    save_update( output_folder, output, session)
                    }
                  })
     observeEvent(input$superimpose,
