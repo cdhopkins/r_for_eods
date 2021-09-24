@@ -551,9 +551,9 @@ Eod$methods(
 	}
 	else if(direction=="left")
 	{
-		shifter<-c( normalized_wave$amplitude[(seq(closest,nrow(normalized_wave)))],rep(normalized_baseline_level, closest - 1) )
+		shifter<-c( normalized_wave$amplitude[(seq(closest,nrow(normalized_wave)))],rep(normalized_baseline_level, closest) )
 	}
-	normalized_wave$amplitude <<- shifter
+	normalized_wave$amplitude <<- head(shifter,nrow(normalized_wave))
 	
 	detect_landmarks_after_normalization()
   },
