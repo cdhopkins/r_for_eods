@@ -106,6 +106,8 @@ Eod$methods(
              arbitraryBaseline= global_arbitrary_baseline,
              baselineType=global_baseline_type,
 			 time_normalization=global_time_normalization_type,
+			 is_normalized=FALSE,
+			 normalized_baseline_level=0,
              ...
     )
     {
@@ -252,7 +254,10 @@ Eod$methods(
     tmp<-normalized_wave[valleys_peaks,]
     tmp[order(tmp$time),]
   },
-  
+  getNormalizedBaseLine=function()
+  {
+	normalized_baseline_level
+  },
   getRecordingDateFormatted = function()
   {
     timestamp(recordingDateTime)
@@ -347,6 +352,10 @@ Eod$methods(
     chooseBaselineAndNormalize(type)
     frame_baseline
   },
+  isNormalized=function()
+  {
+	is_normalized
+  },
   setTimeNormalization=function(type)
   {
 	time_normalization<<-type
@@ -361,11 +370,45 @@ Eod$methods(
   {
     
     getPossibleBaseline(type)
+  },
+  detect_landmarks_after_normalization=function()
+  {
+	#createPeriodgram()
+    
+    #View(normalized_wave)
+    signal_limit = start_end_signal()
+    #print("SIGNAL LIMIT")
+    #print(signal_limit)
+    v_start_time_signal = normalized_wave$time[signal_limit[1]]
+    #print(v_start_time_signal)
+    v_end_time_signal = normalized_wave$time[signal_limit[2]]
+    #print(v_end_time_signal)
+    #print("signal duration=")
+    #print(v_end_time_signal - v_start_time_signal)
+    frame_start_end  <<- normalized_wave[signal_limit, ]
+    frame_start_end$labels <<- c("T1","T2")
+    
+    v_zero_point<-which(abs(normalized_wave$time)==min(abs(normalized_wave$time)))
+    v_frame_zero <<- normalized_wave[v_zero_point,]
+    
+    valleys_peaks <<- find_peaks_and_valleys(normalized_wave,chosen_baseline_position,chosen_last_position-1, p_nb_peaks=maxPeaks )
+    #print(valleys_peaks)
+    #main plot
+    main_plot <<- save_plot(normalized_wave, paste("Wave and landmarks (normalized)",base_filename), valleys_peaks, v_frame_zero, frame_start_end, chosen_baseline_position )
+    
+    #deriv plot
+    tmp_frame_deriv<-fct_diff_deriv(normalized_wave)
+    v_frame_deriv_start_end  <- tmp_frame_deriv[signal_limit, ]
+    v_frame_deriv_start_end$labels <- c("T1","T2")
+    v_frame_deriv_zero <- tmp_frame_deriv[v_zero_point,]
+    derivate_plot <<- save_plot(tmp_frame_deriv, paste("Derivate", base_filename), valleys_peaks, v_frame_deriv_zero, v_frame_deriv_start_end, chosen_baseline_position )
+    print("EOD state : normalized")
+	is_normalized<<-TRUE
   }
   ,
   chooseBaselineAndNormalize = function(type) #type = "mean, meanvar, var, arbitrary
   {
-    print(type)
+    #print(type)
     baselineType<<-type
     if(baselineType=="mean")
     {
@@ -385,6 +428,7 @@ Eod$methods(
     }
     
     chosen_baseline<<-frame_baseline$mean[chosen_baseline_index]
+	normalized_baseline_level<<-chosen_baseline
     chosen_baseline_position<<-frame_baseline$first_position[chosen_baseline_index]
     chosen_last_position<<-frame_baseline$last_position[chosen_baseline_index]
     
@@ -396,39 +440,12 @@ Eod$methods(
     normalized_wave$amplitude <<- normalized_wave$amplitude/(max(normalized_wave$amplitude) - min(normalized_wave$amplitude))
     normalized_wave_amplitude_only <<-normalized_wave
     #normalize time
-	print("TRY_TO_NORMALIZE_TIME")
-	print(time_normalization)
+	#print("TRY_TO_NORMALIZE_TIME")
+	#print(time_normalization)
     normalized_wave<<-normalize_and_center_time(normalized_wave, time_normalization)
     #View(normalized_wave)
-    createPeriodgram()
+	detect_landmarks_after_normalization()
     
-    
-    signal_limit = start_end_signal()
-    print("SIGNAL LIMIT")
-    print(signal_limit)
-    v_start_time_signal = normalized_wave$time[signal_limit[1]]
-    print(v_start_time_signal)
-    v_end_time_signal = normalized_wave$time[signal_limit[2]]
-    print(v_end_time_signal)
-    print("signal duration=")
-    print(v_end_time_signal - v_start_time_signal)
-    frame_start_end  <<- normalized_wave[signal_limit, ]
-    frame_start_end$labels <<- c("T1","T2")
-    
-    v_zero_point<-which(abs(normalized_wave$time)==min(abs(normalized_wave$time)))
-    v_frame_zero <<- normalized_wave[v_zero_point,]
-    
-    valleys_peaks <<- find_peaks_and_valleys(normalized_wave,chosen_baseline_position,chosen_last_position-1, p_nb_peaks=maxPeaks )
-    print(valleys_peaks)
-    #main plot
-    main_plot <<- save_plot(normalized_wave, paste("Wave and landmarks (normalized)",base_filename), valleys_peaks, v_frame_zero, frame_start_end, chosen_baseline_position )
-    
-    #deriv plot
-    tmp_frame_deriv<-fct_diff_deriv(normalized_wave)
-    v_frame_deriv_start_end  <- tmp_frame_deriv[signal_limit, ]
-    v_frame_deriv_start_end$labels <- c("T1","T2")
-    v_frame_deriv_zero <- tmp_frame_deriv[v_zero_point,]
-    derivate_plot <<- save_plot(tmp_frame_deriv, paste("Derivate", base_filename), valleys_peaks, v_frame_deriv_zero, v_frame_deriv_start_end, chosen_baseline_position )
   },
   
   start_end_signal = function()
@@ -503,17 +520,42 @@ Eod$methods(
   ,
   detect_peak_plateau = function(p_frame, current_position, last_position)
   {
+
     returned<-current_position
     p_ref_val=p_frame$amplitude[current_position]
-    for(i in current_position+1:last_position)
+ 
+	#bracket for (current_position+1) very important otherwise analysis goes beyond wave !
+	#because : for(i in current_position+1:last_position)
+	#is evaluated as : for(i in current_position+(1:last_position)) !
+    for(i in (current_position+1):last_position)
     {
+	 
       p_val<-p_frame$amplitude[i]
+	  
       if(p_val!=p_ref_val)
       {
         return(i-1)
       }
     }
     returned
+  },
+  pad_normalized=function(duration, direction)
+  {
+	#closest
+	duration<-min(normalized_wave$time)+duration
+	closest<-which.min(abs(duration-normalized_wave$time))
+	
+	if(direction=="right")
+	{
+		shifter<-c( rep(normalized_baseline_level, closest), normalized_wave$amplitude[(seq(1,nrow(normalized_wave)-closest))])
+	}
+	else if(direction=="left")
+	{
+		shifter<-c( normalized_wave$amplitude[(seq(closest,nrow(normalized_wave)))],rep(normalized_baseline_level, closest - 1) )
+	}
+	normalized_wave$amplitude <<- shifter
+	
+	detect_landmarks_after_normalization()
   },
   fct_diff_deriv=function(p_frame)
   {
@@ -548,13 +590,13 @@ Eod$methods(
   pad_1_sec=function()
   {
     v_diff_1sec=1-max(normalized_wave_amplitude_only$time)
-    print("diff 1 sec")
-    print(v_diff_1sec)
+    #print("diff 1 sec")
+    #print(v_diff_1sec)
     
     v_time_interv=diff(normalized_wave_amplitude_only$time)
     v_mean_interval=mean(v_time_interv)
-    print("mean interv")
-    print(v_mean_interval)
+    #print("mean interv")
+    #print(v_mean_interval)
     #View(v_time_interv)
     v_pad=seq(0,v_diff_1sec/2, by=v_mean_interval )
     #View(pad)
@@ -567,24 +609,26 @@ Eod$methods(
     v_pad_frame$time=v_pad_frame$time + v_mean_interval +max(v_1sec_frame$time)
     v_1sec_frame<-rbind(v_1sec_frame, v_pad_frame)
     #plot(v_1sec_frame, type='l')
-    print("Min padded")
-    print(min(v_1sec_frame$time))
-    print("Max padded")
-    print(max(v_1sec_frame$time))
+    #print("Min padded")
+    #print(min(v_1sec_frame$time))
+    #print("Max padded")
+    #print(max(v_1sec_frame$time))
     padded_normalized_wave_for_periodgram <<-v_1sec_frame
     
     
   },
+  
   createPeriodgram =function()
   {
     v_1sec_frame<-pad_1_sec()
     v_plot<-eod_spectrum()  
   },
+  #end periodgram
   #normalize time(private)
   normalize_and_center_time=function(p_frame,time_normalization=global_time_normalization_type)
   {
-	print("NORMALIZATION_TYPE=")
-	print(time_normalization)
+	#print("NORMALIZATION_TYPE=")
+	#print(time_normalization)
 	#normalize time
     p_frame$time<- p_frame$time / (max(p_frame$time) - min(p_frame$time))
 	#find center
@@ -600,16 +644,16 @@ Eod$methods(
 	}
 	else if(time_normalization=="positive_peak")
 	{		
-		print("go_positive")
+		#print("go_positive")
 		time_center_value=p_frame[max_pos,1]
 	}
 	else if(time_normalization=="negative_peak")
 	{
-		print("go_negative")
+		#print("go_negative")
 		time_center_value=p_frame[min_pos,1]
 	}
-	print("TIME_CENTER")
-	print(time_center_value)
+	#print("TIME_CENTER")
+	#print(time_center_value)
 	#closest array point
 	real_time_center_position = which(abs(p_frame$time - time_center_value)==min(abs(p_frame$time - time_center_value)))		
 	real_time_center_value = p_frame[real_time_center_position, 1]		
@@ -670,7 +714,8 @@ EodCluster <-setRefClass("EodClusters",
                            merged_index="ANY",
                            original_files="ANY", 
 						   cluster_files="ANY",					
-						   time_normalization="character"
+						   time_normalization="character",
+						   averaged_wave="ANY"
                          )
 )
 
@@ -690,9 +735,9 @@ EodCluster$methods(
 	  uploaded_files_to_eod<<-c()
       objs<-list()
       baselineType<<-baselineType
-      print("ORIGINAL_NAMES")
-	  print(true_filenames)
-	   print(typeof(true_filenames))
+      #print("ORIGINAL_NAMES")
+	  #print(true_filenames)
+	   #print(typeof(true_filenames))
 	  
       if(!is.null(cluster_files))
       {
@@ -717,19 +762,19 @@ EodCluster$methods(
           }
 		  else
 		  {
-		   print("ORIGINAL_NAME_LOOP")
-		   print(true_filenames[i])
+		   #print("ORIGINAL_NAME_LOOP")
+		   #print(true_filenames[i])
 			readClusterFile(file, original_name=true_filenames[i] )
 		  }
           
 		  i <- i + 1
 		}
-        print("NEW_CLUSTER")
-        print(cluster_files)
-		print("ORIGINAL_FILE")
-		print(original_files)
-		print("original_files_to_eod")
-		print(original_files_to_eod)
+        #print("NEW_CLUSTER")
+        #print(cluster_files)
+		#print("ORIGINAL_FILE")
+		#print(original_files)
+		#print("original_files_to_eod")
+		#print(original_files_to_eod)
 		
         
       }
@@ -767,14 +812,14 @@ EodCluster$methods(
           }
           i <- i + 1
         }
-		print("DUMP_OBJS")
-	    print(objs)
+		#print("DUMP_OBJS")
+	    #print(objs)
         eodObjects <<- objs
       }
 	  
       size <<- length(eodObjects)
-	  print("CHECK")
-	  #print(eodObjects)
+	  #print("CHECK")
+	  ##print(eodObjects)
       .self
     },
   getEODS=function(index)
@@ -807,7 +852,7 @@ EodCluster$methods(
     }
   },
   
-  superimposePlots=function(folder, specimen_id="")
+  superimposePlots=function(specimen_id="")
   {
     if(specimen_id=="")
     {
@@ -825,6 +870,7 @@ EodCluster$methods(
     cols=c("time")
     for(eod in v_tmp)
     {
+	  #print(i)
       if(i==1)
       {
         df<-data.frame(eod$getNormalizedWave())
@@ -836,7 +882,7 @@ EodCluster$methods(
       cols<-c(cols, eod$getBaseFilename())
       i <- i+1
     }
-    print(cols)
+    #print(cols)
     tmp_plot<-ggplot(df, aes(x=time, y=amplitude))
     
     for(eod in v_tmp)
@@ -846,10 +892,14 @@ EodCluster$methods(
       colnames(tmp_frame)<-c("time", "amplitude", "filename")
       tmp_plot<- tmp_plot + geom_line(data = tmp_frame, aes(x=time, y=amplitude, color=filename) ) 
     }
-    name_merged_plot=paste0(folder, "\\",file_name,"merged_eod_plot", ".png")
+    tmp_plot
+  },
+  superimposeAndSavePlots=function(folder, name_file="merged_eod_plot", specimen_id="")
+  {
+    tmp_plot<-superimposePlots()
+    name_merged_plot=paste0(folder, "\\",file_name, name_file, ".png")
     ggsave(name_merged_plot,tmp_plot)
   },
-  
   getSize = function()
   {
     length(eodObjects)
@@ -909,28 +959,28 @@ EodCluster$methods(
             i<<-i+1
           }
       ))
-    #print("merged=")
-    #print(merged_index)
-    print("ORIGINAL")
-    print(original_files)
+    ##print("merged=")
+    ##print(merged_index)
+    #print("ORIGINAL")
+    #print(original_files)
     unique(l_files)
   }
   ,
   createMergedFile=function(new_file, target_folder)
   {
-    print("NEW_PARAM")
-    print(new_file)
+    #print("NEW_PARAM")
+    #print(new_file)
     list_f<-merged_index[[new_file]]
-    print(list_f)
+    #print(list_f)
     fn=paste0(target_folder, "/",new_file )
     write("EOD_CLUSTER",fn, append = TRUE)
     i<-1
     invisible(lapply(list_f,
                     function(x)
                     {
-                      print(x)
+                      #print(x)
                       original_file<-original_files[x]
-                      print(original_file)
+                      #print(original_file)
                       
                       tmp_eod=eodObjects[[x]]
                       write(c("BEGIN",as.character(i), paste0("original_file","\t",original_file ),"="),fn, append = TRUE)
@@ -944,14 +994,14 @@ EodCluster$methods(
   },
   updateCluster=function( target_folder, cluster_file)
   {
-	print("file_to_save")
-	print(file_array)
-	print("target_folder")
-	print(target_folder)
-	print("cluster_file")
-	print(cluster_file)
+	#print("file_to_save")
+	#print(file_array)
+	#print("target_folder")
+	#print(target_folder)
+	#print("cluster_file")
+	#print(cluster_file)
 	i<-1
-	print(uploaded_files_to_eod)
+	#print(uploaded_files_to_eod)
 	tmp_eods<-c()
 	target_file<-NULL
 	source_file<-NULL
@@ -960,11 +1010,11 @@ EodCluster$methods(
 	    
 		if(file==cluster_file)
 		{
-			print("to_update")
-			print(i)
+			#print("to_update")
+			#print(i)
 			tmp_eods<-c(tmp_eods, eodObjects[[i]])
-			print("target_file")
-			print(original_files_to_eod[i])
+			#print("target_file")
+			#print(original_files_to_eod[i])
 			target_file<-original_files_to_eod[i]
 			
 		}
@@ -992,10 +1042,10 @@ EodCluster$methods(
   },
   readClusterFile=function(cluster_file, original_name=NULL,  encoding=global_encoding)
   {
-     print("file_to_open")
-	 print(cluster_file)
-	 print("original_name")
-	 print(original_name)
+     #print("file_to_open")
+	 #print(cluster_file)
+	 #print("original_name")
+	 #print(original_name)
 	  con = file(cluster_file, "r")
 	  new_file<-FALSE
 	  begin_metadata<-NULL
@@ -1029,14 +1079,14 @@ EodCluster$methods(
 				else if(i_file==1)
 				{
 					metafile<-strsplit(line, '\t') [[1]]
-					print(metafile)
+					#print(metafile)
 					if(length(metafile)==2)
 					{
 						if(metafile[1]=="original_file")
 						{
 							name_file<-metafile[2]
-							print("detect source file")
-							print(name_file)
+							#print("detect source file")
+							#print(name_file)
 							name_current_file<-c(name_current_file,name_file)
 							
 						}
@@ -1061,7 +1111,7 @@ EodCluster$methods(
 			}
 			i<-i+1
 		}
-		#print(line)
+		##print(line)
 	  }
 	  close(con)
 	  
@@ -1069,8 +1119,8 @@ EodCluster$methods(
 	  base_len<-length(eodObjects)
 	  for(i in 1:length(index_current_file))
 	  {
-	    print("i cluster")
-		print(i)
+	    #print("i cluster")
+		#print(i)
 		pos_begin<-index_current_file[i]
 		pos_end<-end_current_file[i]
 		name_current<-name_current_file[i]
@@ -1102,10 +1152,10 @@ EodCluster$methods(
 		eod$setMetadata(file_metadata)
 		eod$setFile(name_current)
 		#wave
-		print(pos_begin+offset_wave+1)
+		#print(pos_begin+offset_wave+1)
 		
-		print("DELIM")
-		print(decimal_sep)
+		#print("DELIM")
+		#print(decimal_sep)
 		file_wave<-read.csv(
 				  cluster_file,
 				  sep='\t',
@@ -1130,14 +1180,14 @@ EodCluster$methods(
 		uploaded_files_to_eod<<-c(uploaded_files_to_eod,cluster_file)
 	  }
 	  source_files_to_eod<<-name_current_file
-	  print("DONE")
+	  #print("DONE")
 	  TRUE 
   },
   removeEodAtIndex=function(i)
   {
-	print("------------------------------------------------")
-    print("remove")
-	print(i)
+	#print("------------------------------------------------")
+    #print("remove")
+	#print(i)
 	eodObjects<<-eodObjects[-i]
 	uploaded_files_to_eod<<-uploaded_files_to_eod[-i]
 	source_files_to_eod<<-source_files_to_eod[-i]
@@ -1156,6 +1206,76 @@ EodCluster$methods(
   getTimeNormalization=function()
   {
 	time_normalization
+  },
+  find_closer_amplitude=function(time, df)
+  {
+		closest<-which.min(abs(time-df$time))		
+		df$amplitude[closest]
+  },
+  generateAveragedNormalizedSignal=function()
+  {
+	#take first Eod
+	v_time<-c()
+	v_ampl<-c()
+	if(length(eodObjects)>=1)
+	{
+		ref_time=eodObjects[[1]]
+		apply(ref_time$getNormalizedWave(),1, 
+				function(x)
+				{
+				    tmp_ampl<-0
+					#print("time=")
+					#print(x[1])
+					#print(min(x[1]))
+					#print("amplitude=")
+					#print(min(x[2]))
+					tmp_ampl<-x[2]
+					if(length(eodObjects)>1)
+					{
+						for(i in 2:length(eodObjects))
+						{
+						    #print("signal_idx")
+							#print(i)
+							cmp_time=eodObjects[[i]]$getNormalizedWave()
+							add_ampl<-find_closer_amplitude(x[1],cmp_time)
+							#print("new_ampl")
+							#print(add_ampl)
+							tmp_ampl<-tmp_ampl+add_ampl
+							#print("sum_ampl")
+							#print(tmp_ampl)
+							
+						}
+						avg_ampl=tmp_ampl/length(eodObjects)
+						#print("avg_ampl")
+						#print(avg_ampl)
+						v_time<<-c(v_time,min(x[1]))
+						v_ampl<<-c(v_ampl,avg_ampl)
+					}
+					
+					
+				}
+			)
+	}
+	averaged_wave<<-data.frame(v_time, v_ampl)
+	colnames(averaged_wave)<<-c("time", "amplitude")
+	#View(averaged_wave)
+  },
+  averaged_to_mormyroscope_file=function(file_name)
+  {
+	if(!is.null(averaged_wave)&&length(eodObjects)>=1)
+	{
+		meta=eodObjects[[1]]$getMetadata()
+		v_field=c("SpecimenTag","ProvisionallD","CollectionEvent","RecordingSoftware","RecordingHardware",
+		"Recordist","BitDepth","SamplingRate","RecordingDateTime","RecordingTemperature","RecordingConductivity","ProjectName")
+		v_value=c(paste0(meta$value[1],"averaged"),meta$value[1],"Averaged file, metadata on field information not significant. Compare with source files. Date is date of averaging, not coming from field work",meta$value[4],meta$value[5],
+		"Non relevant (merged and averaged)",meta$value[7],meta$value[8], strftime(as.POSIXlt(Sys.time(), "UTC") , "%Y-%m-%dT%H:%M:%S%z"),"Non relevant (merged and averaged)","Non relevant (merged and averaged)","Non relevant (merged and averaged)")
+		merged_metadata<-data.frame(v_field, v_value)
+		colnames(merged_metadata)<-c("time", "amplitude")
+
+		write.table(merged_metadata,file_name, sep="=", append = FALSE, row.names=FALSE,   col.names = FALSE,quote = FALSE, dec = "." )
+		write("Time [s]\tAmplitude"	,file_name, append = TRUE)
+		write.table(averaged_wave,file_name, sep="\t", append = TRUE, row.names=FALSE, col.names = FALSE, quote = FALSE, dec = "." )
+	}
   }
   
 )

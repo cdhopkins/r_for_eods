@@ -21,10 +21,13 @@ output_folder<-""
 l_frames<-list()
 eod_cluster<-NULL
 loaded<-FALSE
+#normalized<-FALSE
 current_eod_idx<-NULL
 updated_files<-c()
+superimposed_plot<-NULL
+cluster_file<-NULL
 
-display_plots<-function()
+normalize_all_plots<-function()
 {
     print("__DISPLAY__")
     max_size<-eod_cluster$getSize()
@@ -35,6 +38,7 @@ display_plots<-function()
             {
                 tmp_eod<-eod_cluster$getEODS(i)
                 tmp_eod$getPossibleBaseline()
+                #tmp_eod$normalize()
                 list_chart[[i]]<-tmp_eod$getMainPlot()
             }
            
@@ -50,6 +54,9 @@ append_metadata_batch<-function(new_file, target_folder)
 manage_cluster<-function(file_array, output,session)
 {
 
+  cluster_file<<-file_array$name[1]
+  print("TRUE_FILE")
+  print(cluster_file)
   eod_cluster<<-EodCluster$new(cluster_files=file_array$datapath, true_filenames=file_array$name)
   output$summary<-renderText(paste0("1","/", eod_cluster$getSize(), " file(s)" ))
   
@@ -65,6 +72,7 @@ manage_cluster<-function(file_array, output,session)
                          i<<-i+1
                        })
   print(tmp_choices)
+  normalize_all_plots()
   updateSelectInput(session, "select_eod",
                    
                     choices = setNames(seq(1,length(eod_cluster$getSourceFiles())),
@@ -115,14 +123,24 @@ save_update<-function(file_array, output_folder, output,session)
 }
 redraw_plot<-function(i, output,session)
 {
+  print("redraw")
   if(!is.null(eod_cluster)&&loaded)
   {
+    print(i)
     current_eod_idx<<-i
     tmp_eod<-eod_cluster$getEODS(as.numeric(i))
-    tmp_eod$getPossibleBaseline()
+    #if(!normalized)
+    #{
+      #print("go for normalization")
+      #tmp_eod$getPossibleBaseline()
+      #normalized<<-TRUE
+    #}
+    print("go for plot")
     current_chart<-tmp_eod$getMainPlot()
     output$plot_eods<-renderPlot(current_chart)
     output$summary_data<-renderTable(tmp_eod$getMetadata())
+    print(tmp_eod$getNormalizedBaseLine())
+    output$baseline_text<- renderText(paste0("baseline level (after normalisation)",as.character(tmp_eod$getNormalizedBaseLine())))
   }
 }
 
@@ -162,6 +180,59 @@ remove_at_index<-function(i, output,session)
  
 }
 
+superimpose<-function(flag, output, session)
+{
+  
+  if(flag)
+  {
+    max_size<-eod_cluster$getSize()
+    #force normalization
+    for(i in 1:max_size)
+    {
+      tmp_eod<-eod_cluster$getEODS(i)
+      print("TEST_NORMALIZED")
+      print(tmp_eod$isNormalized())
+      #if(! tmp_eod$isNormalized())
+      #{
+      
+        print("NORMALIZE")
+        print(i)
+        if(normalized)
+        {
+          tmp_eod$normalize_second_part()
+        }
+        else
+        {
+          tmp_eod$normalize()
+        }
+      #}
+    }
+    superimposed_plot<<-eod_cluster$superimposePlots()
+    output$plot_eods<-renderPlot(eod_cluster$superimposePlots())
+  }
+  else
+  {
+    redraw_plot(current_eod_idx, output, session)
+  }
+}
+
+shift_wave<-function(i, shift_interval, direction, output, session)
+{
+  tmp_eod<-eod_cluster$getEODS(as.numeric(i))
+  tmp_eod$pad_normalized(shift_interval, direction)
+  current_chart<-tmp_eod$getMainPlot()
+  output$plot_eods<-renderPlot(current_chart)
+}
+
+create_averaged_file<-function(output_file)
+{
+  if(loaded)
+  {
+    eod_cluster$generateAveragedNormalizedSignal()
+    eod_cluster$averaged_to_mormyroscope_file(output_file)
+  }
+}
+
 change_time_normalization<-function(type_normalization,output, session)
 {
    print(type_normalization)
@@ -172,6 +243,7 @@ manage_batch_files<-function(file_array, target_folder, output)
 {
     print("LOAD")
     print(file_array)
+   
     eod_cluster<<-EodCluster$new(file_array$datapath, true_filenames=file_array$name)
     print(eod_cluster$getSize())
     print("DONE")
@@ -268,17 +340,31 @@ ui <- dashboardPage(
                         
                         plotOutput("plot_eods")
                       ),
+                    textOutput("baseline_text"),
                     actionButton("invert_phase", "Invert phase"),
                     actionButton("remove_eod", "Remove"),
                     actionButton("save_update", "Save updates"),
+                    selectInput("select_eod", label="Current EOD", choices=c()),
                     selectInput("time_normalization", label="Time normalization", choices=c(
                         "halfway"="halfway",
                         "positive_peak"= "positive_peak",
                         "negative_peak"= "negative_peak"
                       
                     )),
-                    
-                      selectInput("select_eod", label="Current EOD", choices=c())
+                    checkboxInput("superimpose", "Superimpose", value = FALSE),
+                    numericInput(
+                      "shift",
+                      "Shift",
+                      0,
+                      min = 0,
+                      max = 1.0,
+                      step = 0.01,
+                    ),
+                    actionButton("shift_right", "Shift right"),
+                    actionButton("shift_left", "Shift left"),
+                    actionButton("save_superimposed", "Save superimposed plot"),
+                    actionButton("create_averaged", "Save averaged signal"),
+                      
                     ),
                     htmlOutput("summary_data"),
                   )
@@ -291,11 +377,7 @@ server <- function(input, output, session) {
     observeEvent(input$eod_files,{
         file_array<<- input$eod_files
         print(input$eod_files$datapath)
-        #if (is.null(file_array))
-        #    return(NULL)
         
-        # Your code
-        #print(file_array)
         
         
     })
@@ -326,8 +408,11 @@ server <- function(input, output, session) {
     observeEvent(input$load_cluster,
                  {
                     print("read merge")
-                    manage_cluster(input$eod_cluster,output, session)
-                 })
+                    if(length(input$eod_cluster)>0)
+                    {
+                      manage_cluster(input$eod_cluster,output, session)
+                    }
+                  })
     
     observeEvent(input$select_eod,
                   {
@@ -361,6 +446,39 @@ server <- function(input, output, session) {
                    {
                     save_update(file_array, output_folder, output, session)
                    }
+                 })
+    observeEvent(input$superimpose,
+                 {
+                  superimpose(input$superimpose, output, session)
+                 })
+    observeEvent(input$shift_right,
+                 {
+                   if(loaded)
+                   {
+                     shift_wave(input$select_eod, input$shift, "right", output, session)
+                   }
+                 })
+    observeEvent(input$shift_left,
+                 {
+                   if(loaded)
+                   {
+                     shift_wave(input$select_eod, input$shift, "left", output, session)
+                   }
+                 })
+    observeEvent(input$save_superimposed,
+                 {
+                   if(! is.null(superimposed_plot))
+                   {
+                     output_folder <<-input$output_folder
+                     print(paste0(output_folder,"/",cluster_file,".png"))
+                     ggsave(paste0(output_folder,"/",cluster_file,".png"),superimposed_plot)
+                   }
+                 }
+                 )
+    observeEvent(input$create_averaged,
+                 {
+                   output_folder <<-input$output_folder
+                   create_averaged_file(paste0(output_folder,"/",cluster_file,"_averaged.csv"))
                  })
 }
 
