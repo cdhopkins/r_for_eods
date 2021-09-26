@@ -76,7 +76,8 @@ Eod <-setRefClass("Eod",
                     periodgram_plot = "ANY",
                     derivate_plot = "ANY", 
                     base_filename="character",
-					time_normalization="character"
+					time_normalization="character",
+					biggest_normalized_time_interval="numeric"
                   )
                   
 )
@@ -107,7 +108,7 @@ Eod$methods(
              baselineType=global_baseline_type,
 			 time_normalization=global_time_normalization_type,
 			 is_normalized=FALSE,
-			 normalized_baseline_level=0,
+			 biggest_normalized_time_interval=0,
              ...
     )
     {
@@ -147,6 +148,7 @@ Eod$methods(
       base_filename<<-basename(file)
       specimenIdentifier<<- paste(projectName, collectionEvent, specimenTag, sep="_")
 	  time_normalization<<- time_normalization
+	  biggest_normalized_time_interval<<-0
       .self
     }
   ,
@@ -231,6 +233,10 @@ Eod$methods(
   getNormalizedWave=function()
   {
     normalized_wave
+  },
+  getBiggestNormalizedTimeInterval=function()
+  {
+	biggest_normalized_time_interval
   },
   getMainPlot = function()
   {
@@ -371,6 +377,32 @@ Eod$methods(
     
     getPossibleBaseline(type)
   },
+  biggest_time_interval=function(frame)
+  {
+    init<-FALSE
+	ref_time<-NULL
+	ref_interval<-0
+	apply(frame,1, 
+		function(x)
+				{
+					if(init)
+					{
+						new_time<-x[1]
+						tmp_interval<-abs(new_time-ref_time)
+						if(tmp_interval>ref_interval)
+						{
+							ref_interval<<-tmp_interval
+						}
+					}
+					else
+					{
+						init<<-TRUE
+					}
+					ref_time<<-x[1]
+					
+				})
+	ref_interval
+  },
   detect_landmarks_after_normalization=function()
   {
 	#createPeriodgram()
@@ -403,6 +435,9 @@ Eod$methods(
     v_frame_deriv_zero <- tmp_frame_deriv[v_zero_point,]
     derivate_plot <<- save_plot(tmp_frame_deriv, paste("Derivate", base_filename), valleys_peaks, v_frame_deriv_zero, v_frame_deriv_start_end, chosen_baseline_position )
     print("EOD state : normalized")
+	biggest_normalized_time_interval<<-biggest_time_interval(normalized_wave)
+	print("biggest normalized time interval")
+	print(biggest_normalized_time_interval)
 	is_normalized<<-TRUE
   }
   ,
@@ -1207,10 +1242,23 @@ EodCluster$methods(
   {
 	time_normalization
   },
-  find_closer_amplitude=function(time, df)
+  find_closest_amplitude=function(time, df, control_interval)
   {
-		closest<-which.min(abs(time-df$time))		
-		df$amplitude[closest]
+		returned<-NULL
+		closest<-which.min(abs(time-df$time))
+		found_interval<-abs(df$time[closest]-time)
+		#print("test")
+		#print("control interval")
+		#print(control_interval)
+		#print("test_interval")
+		#print(found_interval)
+		
+		if(found_interval<=control_interval)
+        {		
+		    #print("keep")
+			returned<-df$amplitude[closest]
+		}
+		returned
   },
   generateAveragedNormalizedSignal=function()
   {
@@ -1224,30 +1272,24 @@ EodCluster$methods(
 				function(x)
 				{
 				    tmp_ampl<-0
-					#print("time=")
-					#print(x[1])
-					#print(min(x[1]))
-					#print("amplitude=")
-					#print(min(x[2]))
 					tmp_ampl<-x[2]
+					vector_ampl<-c(tmp_ampl)
 					if(length(eodObjects)>1)
 					{
 						for(i in 2:length(eodObjects))
 						{
-						    #print("signal_idx")
-							#print(i)
+
 							cmp_time=eodObjects[[i]]$getNormalizedWave()
-							add_ampl<-find_closer_amplitude(x[1],cmp_time)
-							#print("new_ampl")
-							#print(add_ampl)
-							tmp_ampl<-tmp_ampl+add_ampl
-							#print("sum_ampl")
-							#print(tmp_ampl)
+							control_interval<-eodObjects[[i]]$getBiggestNormalizedTimeInterval()
+							add_ampl<-find_closest_amplitude(x[1],cmp_time, control_interval)
+							if(!is.null(add_ampl))
+							{
+								vector_ampl<-c(vector_ampl,add_ampl)
+							}							
 							
 						}
-						avg_ampl=tmp_ampl/length(eodObjects)
-						#print("avg_ampl")
-						#print(avg_ampl)
+						
+						avg_ampl=sum(vector_ampl)/length(vector_ampl)						
 						v_time<<-c(v_time,min(x[1]))
 						v_ampl<<-c(v_ampl,avg_ampl)
 					}
